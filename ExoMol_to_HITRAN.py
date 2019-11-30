@@ -27,6 +27,9 @@ python ExoMol_to_HITRAN.py <isotopologue> <dataset name> <numin> <numax> <T>
 for example,
 python ExoMol_to_HITRAN.py 14N-1H3 BYTe 1000. 3000. 296
 
+Pass -e or --enforce-ordering to require input transitions to be ordered by
+wavenumber.
+
 """
 
 import sys, os
@@ -68,6 +71,10 @@ parser.add_argument('-a', '--abundance', dest='abundance', action='store',
                     'scaling factor')
 parser.add_argument('-Q', '--pf', dest='Q', action='store',
                     type=float, default=None, help='Partition sum')
+parser.add_argument('-e', '--enforce-ordering', dest='enforce_ordering',
+                    action='store_true', default=False,
+                    help='Require input transitions to be ordered by'
+                         ' increasing wavenumber')
 
 args = parser.parse_args()
 iso, dataset, numin, numax, T, data_dir, Smin, abundance = (args.iso,
@@ -220,9 +227,9 @@ Q = get_Q(q_name, T)
 print('Q(%d K) = %f' % (T, Q))
 
 # Planck's const (J s); speed of light (m s-1); Boltzmann's const (J K-1)
-h = 6.62606896e-34; c = 299792458.0; kB = 1.3806504e-23
-c2 = h * c * 100. / kB     # second radiation constant, cm.K
-pic8 = 8. * np.pi * c * 100    # 8.pi.c in cm-1 s
+h = 6.62607015e-34; c = 299792458; kB = 1.380649e-23
+c2 = h * c * 100 / kB     # second radiation constant, cm.K
+pic8 = 8 * np.pi * c * 100    # 8.pi.c in cm-1 s
 
 states = read_states(states_name)
 
@@ -232,7 +239,8 @@ fo = open(out_name, 'w')
 ncalc = 0
 # number of lines written:
 nlines = 0
-print('writing HITRAN .par file for %d - %d (T = %d K)...' % (numin, numax, T))
+print('writing HITRAN .par file for %d - %d cm-1 at T = %d K...'
+            % (numin, numax, T))
 if Smin:
     print('Intensity threshold, Smin =', Smin, 'cm-1/(molec.cm-2)')
 last_nu = -1000.
@@ -241,9 +249,19 @@ for trans_name in trans_names:
     for (nu, Epp, gp, gpp, A) in read_trans(trans_name):
         if nu < numin:
             continue
-        if nu > numax:
+
+        # If we insist that the incoming transitions are ordered by wavenumber
+        # we can break as soon as nu > numax.
+        if args.enforce_ordering and nu > numax:
             break
-        if nu-last_nu < -1.e-2:
+        # If the incoming transitions may not be strictly ordered, wait until
+        # we're some way above numax before breaking off.
+        if nu > numax + 10:
+            break
+        if nu > numax:
+            continue
+
+        if args.enforce_ordering and nu - last_nu < -1.e-2:
             print('transitions not ordered by wavenumber.')
             print(nu, Epp, gp, gpp, A)
             print(last_nu)
